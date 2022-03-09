@@ -1,0 +1,193 @@
+# Kayla PS2
+
+# A.1 Install packages
+#Step 1
+install.packages('downloader')
+install.packages('dplyr')
+install.packages('ggplot2')
+
+#Step 2
+library(foreign) #Imports dta files
+library(dplyr) #Data manipulation
+library(ggplot2)
+
+
+## A.2 Download data 
+### A.2.1 Data set:
+ http://www.ennvih-mxfls.org/english/ennvih-1.html
+ 
+#URL 
+ url_cons = "http://www.ennvih-mxfls.org/english/assets/hh02dta_b1.zip"
+ 
+#File name
+file_name = "mxfls_cons.zip"
+
+# "Downloader" library--function: download.file()
+download.file(url_cons, file_name)
+
+#Unzip file
+unzip("mxfls_cons.zip")
+
+### A.2.2 Download data:
+### Dataset from PS1 
+url = "http://www.ennvih-mxfls.org/english/assets/hh02dta_bc.zip"
+
+#File name
+file_name = "mxfls.zip"
+
+# "Downloader" library--function: download.file()
+download.file(url, file_name)
+
+unzip("mxfls.zip")
+
+
+## A.2.1 Import file into R
+df_cons = read.dta("hh02dta_b1/i_cs.dta")
+
+# Question 1 
+## Q1.1 Calculate a measure of total consumption and per capita consumption for
+## each household in the 2002 round. To calculate per capita consumption, note you 
+## will have to calculate the number of individuals in each household.
+
+# 1. Select columns
+
+## 1.A Show columns (using the i_cs.dta)
+df_cons %>% 
+  names()
+
+
+## 1.1 Select column containing specific string (text) - will show only what is in the parentheses
+## Select function allows us to select specific columns - manual way to select something
+## Contains function selects all of the columns w that variable
+
+### 1.1A Select 7 day Expenditure
+df_cons  %>% 
+  select(contains('cs02')) %>% 
+  names()
+
+### 1.1B Select Monthly Expenditure
+df_cons  %>% 
+  select(contains('cs16')) %>% 
+  names()
+
+### 1.1C Select Data for Assignment
+#### 7 day data (potatoes, chiles, bananas, apples, oranges)
+df_cons%>%
+  select(cs02a_22, cs02a_32, cs02a_41, cs02a_52,cs02a_62)%>%
+  head(10)
+
+#### Monthly data (personal items, hh cleaning items, general services,entertainment/recreation, other hh services)
+df_cons%>%
+  select(cs16a_1, cs16d_1,cs16e_1,cs16f_1,cs16i_1)%>%
+  head(10)
+
+# 2. Multiply multiple columns by scalar
+## 2.2 Select multiple columns and mutate them
+
+###2.2A convert 7 day data to monthly data, then select newly converted data & previous monthly data & rename columns
+New_df_cons = df_cons %>% 
+  mutate_at(vars(cs02a_22, cs02a_32, cs02a_41, cs02a_52,cs02a_62), ~ . *4.3) %>% # multiply columns selected by 4.3
+  select(cs02a_22, cs02a_32, cs02a_41, cs02a_52,cs02a_62,cs16a_1, cs16d_1,cs16e_1,cs16f_1,cs16i_1)%>%
+  rename('potatoes'='cs02a_22')%>%
+  rename('chiles'='cs02a_32')%>%
+  rename('bananas'='cs02a_41')%>%
+  rename('apples'='cs02a_52')%>%
+  rename('oranges'='cs02a_62')%>%
+  rename('personal items'='cs16a_1')%>%
+  rename('hh cleaning items'='cs16d_1')%>%
+  rename('general services'='cs16e_1')%>%
+  rename('enertainment/recreation'='cs16f_1')%>%
+  rename('other hh services'='cs16i_1')
+
+# 3. Row Sums
+## 3.1 create dataframe w/ summed data
+
+summed_df_cons = New_df_cons%>%
+  mutate(
+    total_consumption = rowSums(.)
+  )
+
+## 3.2 Replace NAs in summed data with 0
+summed_df_cons_no_NA= summed_df_cons %>% 
+  replace(is.na(.), 0) %>% # replaces all NA with zero
+  mutate(
+    total_consumption = rowSums(.)
+  )
+
+
+## 4. Histogram
+summed_df_cons_no_NA%>%
+  select(total_consumption)%>%
+  summary()
+
+
+## 4.1 Histogram - filtering out all of the consumption under 10k to try to get 
+##  rid of some of the outliers bc that max consumption is at 1 million
+
+histogram_df = summed_df_cons_no_NA %>% 
+  filter(total_consumption<2500) #Remove outlier for example
+
+histogram_df %>% 
+  ggplot(aes(x=total_consumption))+ geom_histogram(color="darkblue",bins = '40', fill="lightblue")
+
+
+# 5. Poverty line--Using saved objects
+# Create a new object called poverty line
+
+## 5.1 Filter by saved object
+
+povertyline = 500 #saved object
+
+## create a dummy variable to tell me if people are UNDER the PL
+### 1 is under poverty, 0 is not
+
+dummy_pov_line = summed_df_cons_no_NA%>%
+  mutate(pov_dummy = as.numeric(total_consumption<povertyline)) %>%
+  select(pov_dummy, total_consumption)
+
+dummy_pov_line%>%
+  head(5)
+
+# Avg mean of those living in poverty & those not living in poverty
+dummy_pov_line%>%
+  group_by(pov_dummy)%>%
+  summarise(mean_consum = mean(total_consumption))
+
+
+### 5.1.1 Calculate poverty rate with dummy
+
+dummy_pov_line %>% 
+  summarise(
+    pov_rate = mean(pov_dummy) *100
+  )
+
+### 5.2 Pov GAP
+### 5.2.1 Create poverty gap for every observation
+### here selecting all rows = 1, meaning living in poverty
+dummy_pov_line %>% 
+  filter(pov_dummy==1) %>% 
+  mutate(pov_gap = povertyline-total_consumption)%>%
+  select(total_consumption, pov_gap)%>%
+  head(5)
+
+
+### 5.2.2 Using mean function with NAs
+### the rm.na=TRUE lets you use the mean function w/ existing NAs
+#### but we already removed them 
+dummy_pov_line %>% 
+  filter(pov_dummy==1) %>% 
+  mutate(pov_gap = povertyline-total_consumption) %>% 
+  summarise(
+    pov_gap_calculation = mean(pov_gap, rm.na=TRUE) 
+  )
+
+
+### 5.2.3 Write answer as excel
+dummy_pov_line %>% 
+  filter(pov_dummy==1) %>% 
+  mutate(pov_gap = povertyline-total_consumption) %>% 
+  summarise(
+    pov_gap_calculation = mean(pov_gap, rm.na=TRUE) ,
+    pov_gap_obs = n(),
+    pov_rate =  mean(pov_dummy),
+  ) %>% write.csv('Answer_cons.csv')
